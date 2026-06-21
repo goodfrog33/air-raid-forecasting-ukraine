@@ -1,0 +1,18 @@
+REFLECTION
+
+What went wrong: My first attempts trusted assumptions that broke in practice.
+I targeted Python 3.14 (no ML wheels), let RandomForest train with unbounded
+depth so long background runs got killed, rendered the map with Plotly's d3-geo
+engine (a polygon winding-order bug flooded the whole frame), used a seaborn
+colorscale Plotly rejects (crashing the Analytics tab), and made rapid GDELT
+calls until the API rate-limited the news fetch.
+
+How I adjusted: I stopped assuming and verified each component against the
+running system. I pinned Python 3.12, capped and split training into shorter
+stages, switched the map to the maplibre renderer, used only valid colorscales,
+and fetched news in throttled, incremental chunks.
+
+Why the final version is better: it is reproducible, fails gracefully, is
+honestly evaluated (news lift came out at about -2%, so I kept it optional),
+and -- unlike the first attempt -- actually runs end to end and is deployed and
+verified online.
