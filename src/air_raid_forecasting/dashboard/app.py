@@ -132,7 +132,7 @@ def section_analytics(events: pd.DataFrame, national: pd.DataFrame) -> None:
         pivot = (events.groupby(["day_of_week", "hour_of_day"]).size()
                  .unstack(fill_value=0).reindex(range(7)))
         fig = px.imshow(pivot.values, labels=dict(x="Hour", y="Day", color="Alerts"),
-                        x=list(range(24)), y=DOW, color_continuous_scale="rocket_r",
+                        x=list(range(24)), y=DOW, color_continuous_scale="Inferno",
                         title="Alert intensity: hour × day of week", aspect="auto")
         st.plotly_chart(fig, use_container_width=True)
         col1, col2 = st.columns(2)
