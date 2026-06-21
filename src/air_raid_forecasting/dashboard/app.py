@@ -23,6 +23,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from air_raid_forecasting.config import load_config
+from air_raid_forecasting.data.geo import load_geojson, region_centroids
 from air_raid_forecasting.data.regions import short_name
 
 CFG = load_config()
@@ -68,6 +69,25 @@ def load_predictor():
         return Predictor.from_dir(MODELS, tz=CFG.project.timezone_local)
     except Exception:
         return None
+
+
+@st.cache_data(show_spinner=False)
+def load_geo():
+    """Return (geojson, centroids); (None, None) if unavailable."""
+    try:
+        geo = load_geojson(CFG.paths.external_dir, download=True)
+        return geo, region_centroids(geo)
+    except Exception:
+        return None, None
+
+
+@st.cache_data(show_spinner="Running the model for every region…")
+def live_predictions(horizon: int) -> pd.DataFrame:
+    predictor = load_predictor()
+    rows = predictor.predict_batch([(r, horizon) for r in predictor.regions])
+    df = pd.DataFrame(rows)
+    df["short"] = df["region"].map(short_name)
+    return df
 
 
 # --------------------------------------------------------------------------- #
@@ -218,6 +238,72 @@ def section_explain() -> None:
         st.info("No explainability artifacts yet — run the training pipeline.")
 
 
+_SEVERITY_COLORS = {"Low": "#2ecc71", "Medium": "#f1c40f", "High": "#e67e22", "Critical": "#e74c3c"}
+_SEVERITY_ORDER = ["Low", "Medium", "High", "Critical"]
+
+
+def section_map() -> None:
+    st.header("🗺️ Live Prediction Map")
+    predictor = load_predictor()
+    if predictor is None:
+        st.warning("Model bundle not found. Train the models first "
+                   "(`python -m air_raid_forecasting.pipeline.run_train`).")
+        return
+
+    c1, c2 = st.columns([1, 1])
+    horizon = c1.select_slider("Forecast horizon (hours)", options=[1, 3, 6, 12, 24], value=6)
+    metric = c2.selectbox("Colour regions by",
+                          ["Alert probability", "Predicted count", "Severity"])
+    df = live_predictions(int(horizon))
+    geojson, centroids = load_geo()
+
+    hover = {
+        "region": False, "alert_probability": ":.2f", "predicted_alert_count": True,
+        "predicted_duration_minutes": ":.0f", "severity": True,
+    }
+    if geojson is not None:
+        common = dict(geojson=geojson, locations="region",
+                      featureidkey="properties.region_canonical",
+                      hover_name="short", hover_data=hover)
+        if metric == "Severity":
+            fig = px.choropleth(df, color="severity", color_discrete_map=_SEVERITY_COLORS,
+                                category_orders={"severity": _SEVERITY_ORDER}, **common)
+        elif metric == "Predicted count":
+            fig = px.choropleth(df, color="predicted_alert_count",
+                                color_continuous_scale="Oranges", **common)
+        else:
+            fig = px.choropleth(df, color="alert_probability", range_color=(0, 1),
+                                color_continuous_scale="Reds", **common)
+        fig.update_geos(fitbounds="locations", visible=False)
+        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=560)
+    else:
+        # Bubble-map fallback (no GeoJSON): centroids + colour/size by prediction.
+        d = df.copy()
+        d["lon"] = d["region"].map(lambda r: (centroids or {}).get(r, (31.0, 49.0))[0])
+        d["lat"] = d["region"].map(lambda r: (centroids or {}).get(r, (31.0, 49.0))[1])
+        fig = px.scatter_geo(d, lat="lat", lon="lon", color="alert_probability",
+                             size="predicted_alert_count", hover_name="short",
+                             color_continuous_scale="Reds", range_color=(0, 1))
+        fig.update_geos(scope="europe", center=dict(lat=48.5, lon=31.5),
+                        projection_scale=4, visible=True)
+        fig.update_layout(height=560, margin=dict(l=0, r=0, t=10, b=0))
+
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"Live model output for all {len(df)} regions · horizon = next {horizon}h · "
+               f"as of {df['as_of'].iloc[0][:16].replace('T', ' ')} UTC")
+
+    sort_col = {"Alert probability": "alert_probability", "Predicted count": "predicted_alert_count",
+                "Severity": "alert_probability"}[metric]
+    table = (df[["short", "alert_probability", "predicted_alert_count",
+                 "predicted_duration_minutes", "severity", "confidence"]]
+             .sort_values(sort_col, ascending=False)
+             .rename(columns={"short": "Region", "alert_probability": "P(alert)",
+                              "predicted_alert_count": "Count", "severity": "Severity",
+                              "predicted_duration_minutes": "Duration (min)",
+                              "confidence": "Confidence"}))
+    st.dataframe(table.reset_index(drop=True), use_container_width=True, height=380)
+
+
 def render() -> None:
     st.set_page_config(page_title="Ukraine Air Raid Forecasting", page_icon="🛡️", layout="wide")
     st.title("🛡️ Ukraine Air Raid Alert — Analytics & Forecasting")
@@ -232,13 +318,16 @@ def render() -> None:
 
     page = st.sidebar.radio(
         "Section",
-        ["Executive Summary", "Analytics", "Forecasting", "Prediction Tool", "Explainability"],
+        ["Executive Summary", "Live Map", "Analytics", "Forecasting",
+         "Prediction Tool", "Explainability"],
     )
     st.sidebar.markdown("---")
     st.sidebar.caption(f"Events: {len(events):,}  ·  Regions: {events['region'].nunique()}")
 
     if page == "Executive Summary":
         section_summary(events, national)
+    elif page == "Live Map":
+        section_map()
     elif page == "Analytics":
         section_analytics(events, national)
     elif page == "Forecasting":

@@ -28,6 +28,7 @@ data/raw/*
 !data/raw/.gitkeep
 data/external/*
 !data/external/.gitkeep
+!data/external/ukraine_oblasts.geojson
 data/processed/*
 !data/processed/.gitkeep
 

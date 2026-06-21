@@ -26,7 +26,9 @@ FastAPI prediction service, and an interactive Streamlit dashboard.
   (never a random split), with automatic best-model selection.
 - **Explainability** (SHAP + permutation + importance), **experiment tracking**,
   a **FastAPI** service (`/health`, `/metrics`, `/predict`, `/predict_batch`),
-  a **Streamlit** dashboard, full **pytest** suite, and **Docker** deployment.
+  and a **Streamlit** dashboard with a **live choropleth map** of Ukraine that
+  runs the model for every oblast and colours them by predicted risk.
+- Full **pytest** suite and **Docker** deployment.
 
 ---
 
