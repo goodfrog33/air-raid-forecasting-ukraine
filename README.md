@@ -1,5 +1,9 @@
 # 🛡️ Time-Series Analysis & Forecasting of Air Raid Alerts in Ukraine
 
+### 🔴 Live demo: **[air-raid-forecasting-ukraine.streamlit.app](https://air-raid-forecasting-ukraine.streamlit.app/)**
+
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://air-raid-forecasting-ukraine.streamlit.app/)
+
 A complete, production-style **defense-analytics platform** that ingests real
 historical Ukrainian air raid alert data, analyzes it, and forecasts future
 alert activity — backed by rigorous time-series backtesting, a deployable
@@ -39,11 +43,14 @@ FastAPI prediction service, and an interactive Streamlit dashboard.
 
 ## 🌐 Live demo / deploy to Streamlit Community Cloud
 
+**Live app:** https://air-raid-forecasting-ukraine.streamlit.app/ — deployed from
+this repo on Streamlit Community Cloud.
+
 The repo is deploy-ready: a compact pre-trained model bundle and the small data
 files the dashboard reads are committed, so the app serves immediately with no
 training step.
 
-**One-click deploy** (free, persistent, runs from this public repo):
+**Deploy your own copy** (free, persistent, runs from this public repo):
 
 1. Open **[share.streamlit.io/deploy?repository=goodfrog33/air-raid-forecasting-ukraine&branch=main&mainModule=dashboard/streamlit_app.py](https://share.streamlit.io/deploy?repository=goodfrog33/air-raid-forecasting-ukraine&branch=main&mainModule=dashboard/streamlit_app.py)**
    (or go to share.streamlit.io → **New app → From existing repo**).
