@@ -1,0 +1,28 @@
+# Full stack for the entire pipeline (training, EDA, every model + service).
+# Mirrors pyproject.toml [project.dependencies]. For the lean serving set used
+# by Streamlit Cloud, see requirements.txt. Deep-learning extras: requirements-optional.txt
+numpy>=1.26
+pandas>=2.1
+pyarrow>=14
+scipy>=1.11
+scikit-learn>=1.4
+statsmodels>=0.14
+holidays>=0.45
+python-dateutil>=2.8
+pyyaml>=6.0
+joblib>=1.3
+tqdm>=4.66
+requests>=2.31
+matplotlib>=3.8
+seaborn>=0.13
+plotly>=5.20
+xgboost>=2.0
+lightgbm>=4.3
+catboost>=1.2
+prophet>=1.1.5
+shap>=0.45
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pydantic-settings>=2.2
+streamlit>=1.33

@@ -37,6 +37,30 @@ FastAPI prediction service, and an interactive Streamlit dashboard.
 
 ---
 
+## 🌐 Live demo / deploy to Streamlit Community Cloud
+
+The repo is deploy-ready: a compact pre-trained model bundle and the small data
+files the dashboard reads are committed, so the app serves immediately with no
+training step.
+
+**One-click deploy** (free, persistent, runs from this public repo):
+
+1. Open **[share.streamlit.io/deploy?repository=goodfrog33/air-raid-forecasting-ukraine&branch=main&mainModule=dashboard/streamlit_app.py](https://share.streamlit.io/deploy?repository=goodfrog33/air-raid-forecasting-ukraine&branch=main&mainModule=dashboard/streamlit_app.py)**
+   (or go to share.streamlit.io → **New app → From existing repo**).
+2. Repository `goodfrog33/air-raid-forecasting-ukraine`, branch `main`,
+   main file `dashboard/streamlit_app.py`.
+3. Click **Deploy**. First build ~2-3 min; you get a public URL like
+   `https://air-raid-forecasting-ukraine.streamlit.app`.
+
+Cloud picks up `requirements.txt` (lean serving set), `packages.txt` (`libgomp1`)
+and `.streamlit/config.toml` automatically. The `src`-layout package is put on
+the path by `dashboard/streamlit_app.py`, so no editable install is needed.
+
+> Re-running the full pipeline locally refreshes the committed artifacts; commit
+> and push to update the live app.
+
+---
+
 ## Project structure
 
 ```

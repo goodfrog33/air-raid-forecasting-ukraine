@@ -1,27 +1,25 @@
-# Core runtime dependencies (pip-friendly mirror of pyproject.toml).
-# For deep-learning models install the optional extras:  pip install -e ".[deep]"
+# Runtime dependencies for the DEPLOYED app (dashboard + API serving).
+# This is the file Streamlit Community Cloud installs — kept lean so the build
+# is fast and reliable (no torch / prophet / statsmodels / shap needed to serve
+# a pre-trained model bundle).
+#
+# For the FULL pipeline (training, EDA, all models) install the project instead:
+#   pip install -e ".[deep,dev]"          # from pyproject.toml
+# or:
+#   pip install -r requirements-full.txt
 numpy>=1.26
 pandas>=2.1
 pyarrow>=14
 scipy>=1.11
 scikit-learn>=1.4
-statsmodels>=0.14
-holidays>=0.45
-python-dateutil>=2.8
-pyyaml>=6.0
-joblib>=1.3
-tqdm>=4.66
-requests>=2.31
-matplotlib>=3.8
-seaborn>=0.13
-plotly>=5.20
-xgboost>=2.0
 lightgbm>=4.3
+xgboost>=2.0
 catboost>=1.2
-prophet>=1.1.5
-shap>=0.45
-fastapi>=0.110
-uvicorn[standard]>=0.29
+matplotlib>=3.8   # LightGBM imports it for its plotting helpers
+joblib>=1.3
+pyyaml>=6.0
 pydantic>=2.6
-pydantic-settings>=2.2
+python-dateutil>=2.8
+requests>=2.31
+plotly>=5.20
 streamlit>=1.33
