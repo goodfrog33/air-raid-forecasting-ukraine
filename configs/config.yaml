@@ -1,0 +1,142 @@
+# =============================================================================
+# Air Raid Alert Forecasting — central configuration
+# Every stage of the pipeline reads this file. Paths are relative to the
+# project root unless absolute. Times in the source data are UTC.
+# =============================================================================
+
+project:
+  name: air-raid-forecasting
+  version: "1.0.0"
+  random_seed: 42
+  # Local timezone used to derive calendar features (hour-of-day, weekend, …).
+  # The raw data is UTC; Ukraine observes Europe/Kyiv.
+  timezone_local: "Europe/Kyiv"
+
+paths:
+  raw_dir: data/raw
+  external_dir: data/external
+  processed_dir: data/processed
+  models_dir: models
+  reports_dir: reports
+  figures_dir: reports/figures
+
+# -----------------------------------------------------------------------------
+# Phase 1 — Data acquisition (LIVE DOWNLOAD ONLY, no synthetic fallback).
+# Source: Vadimkin/ukrainian-air-raid-sirens-dataset (public, token-free, UTC).
+# -----------------------------------------------------------------------------
+data:
+  primary_source: official          # official | volunteer
+  base_url: "https://raw.githubusercontent.com/Vadimkin/ukrainian-air-raid-sirens-dataset/main"
+  sources:
+    official:
+      path: "datasets/official_data_en.csv"
+      filename: official_data_en.csv
+    volunteer:
+      path: "datasets/volunteer_data_en.csv"
+      filename: volunteer_data_en.csv
+    states:
+      path: "processors/states.json"
+      filename: states.json
+  download_timeout_seconds: 120
+  # Two permanent sirens are intentionally excluded from the source data.
+  exclude_permanent_sirens: ["Luhanska oblast", "Avtonomna Respublika Krym"]
+
+# -----------------------------------------------------------------------------
+# Phase 2 — Cleaning & validation
+# -----------------------------------------------------------------------------
+preprocess:
+  level: oblast                      # collapse raion/hromada alerts up to oblast
+  min_duration_seconds: 30           # drop impossibly short alerts
+  max_duration_hours: 72             # cap / flag implausibly long alerts
+  naive_default_minutes: 30          # volunteer 'naive' rows already use 30 min
+  drop_open_ended: false             # keep alerts with missing end (impute)
+  anomaly_zscore_threshold: 6.0      # duration anomaly flag
+
+# -----------------------------------------------------------------------------
+# Hourly panel construction (the modeling table)
+# -----------------------------------------------------------------------------
+panel:
+  freq: "h"                          # hourly resolution
+  regions: auto                      # 'auto' = derive from data, or list of names
+  start: null                        # null = dataset min; or "2022-06-01"
+  end: null                          # null = dataset max
+
+# -----------------------------------------------------------------------------
+# Phase 4 — Feature engineering
+# -----------------------------------------------------------------------------
+features:
+  use_calendar: true
+  use_holidays: true
+  holiday_country: "UA"
+  lags_hours: [1, 2, 3, 6, 12, 24, 48, 168]      # 168 = 7 days
+  rolling_windows_hours: [3, 6, 12, 24, 72, 168]
+  rolling_stats: ["mean", "std", "max", "min", "sum"]
+  add_time_since_last_alert: true
+  # External data families are optional connectors; disabled by default because
+  # they require network/API keys. Enable to evaluate their lift (Phase 4).
+  weather:
+    enabled: false
+  news:
+    enabled: false
+
+# -----------------------------------------------------------------------------
+# Phase 5 — Forecasting targets
+# -----------------------------------------------------------------------------
+targets:
+  count_horizons_hours: [1, 6, 24]   # Target A: number of alerts in next H hours
+  proba_windows_hours: [1, 6, 24]    # Target B: P(alert within next H hours)
+  duration:                          # Target C
+    enabled: true
+  severity:                          # Target D — derived from duration distribution
+    enabled: true
+    # quantile cut-points on alert duration_minutes -> Low/Medium/High/Critical
+    quantiles: [0.5, 0.8, 0.95]
+    labels: ["Low", "Medium", "High", "Critical"]
+
+# -----------------------------------------------------------------------------
+# Phases 6-8 — Models, backtesting, evaluation
+# -----------------------------------------------------------------------------
+modeling:
+  # Headline backtest is run on the NATIONAL hourly count series (Target A, H=1).
+  primary_target: count
+  primary_horizon_hours: 1
+  # Models compared on the national series. Heavy DL models are gated.
+  enabled_models:
+    - naive
+    - seasonal_naive
+    - moving_average
+    - ets
+    - sarima
+    - random_forest
+    - xgboost
+    - lightgbm
+    - catboost
+    - prophet
+  enable_lstm: true                  # set false to skip torch entirely
+  enable_tft: false                  # requires pytorch-forecasting extra
+  # Per-model training time budget (seconds); a slow model is skipped if exceeded.
+  per_model_timeout_seconds: 240
+  seasonal_period_hours: 24
+
+backtest:
+  scheme: expanding                  # expanding | rolling
+  n_folds: 3                         # 3 x 30-day out-of-sample folds (rigorous + tractable)
+  test_horizon: "30D"                # each fold tests on the next 30 days
+  min_train: "270D"                  # first fold trains on >= 270 days
+  step: "30D"                        # advance the origin by 30 days per fold
+  gap_hours: 0                       # gap between train end and test start
+
+# Production model that backs the FastAPI service & dashboard prediction tool.
+# A single GLOBAL gradient-boosted model trained over the long (region x hour)
+# panel — it ingests engineered features and serves ANY region & horizon.
+production:
+  model: lightgbm                    # falls back to best ML model from comparison
+  serve_regions: auto
+
+# -----------------------------------------------------------------------------
+# Phase 11 — Service
+# -----------------------------------------------------------------------------
+service:
+  host: "0.0.0.0"
+  port: 8000
+  model_version: "1.0.0"

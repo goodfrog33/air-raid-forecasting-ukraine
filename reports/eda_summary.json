@@ -1,0 +1,44 @@
+{
+  "n_events": 74675,
+  "n_regions": 24,
+  "date_min": "2022-03-15 16:10:34+00:00",
+  "date_max": "2026-06-19 23:47:31+00:00",
+  "total_alerts": 74675,
+  "avg_alerts_per_day": 47.96,
+  "duration_minutes": {
+    "mean": 124.99,
+    "median": 44.22,
+    "p90": 225.03,
+    "p99": 804.17,
+    "max": 870027.9
+  },
+  "top_regions": {
+    "Zaporizhzhia": 7920,
+    "Donetsk": 7150,
+    "Sumy": 5702,
+    "Poltava": 5411,
+    "Kharkiv": 5114,
+    "Mykolaiv": 4819,
+    "Kherson": 4720,
+    "Kirovohrad": 4163,
+    "Chernihiv": 3753,
+    "Dnipropetrovsk": 3411
+  },
+  "hourly_alert_rate": 0.9287,
+  "decomposition": {
+    "seasonal_strength": 0.14928557544855015,
+    "trend_strength": 0.28086508544440925
+  },
+  "stationarity": {
+    "adf": {
+      "statistic": -20.396746548730796,
+      "pvalue": 0.0,
+      "stationary_at_5pct": true
+    },
+    "kpss": {
+      "statistic": 1.1754733544037985,
+      "pvalue": 0.01,
+      "stationary_at_5pct": false
+    }
+  }
+}

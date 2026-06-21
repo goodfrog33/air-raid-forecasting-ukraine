@@ -1,0 +1,45 @@
+# Spin up the prediction API and the dashboard, sharing the data & models dirs.
+#
+#   docker compose run --rm pipeline   # one-off: ingest -> ... -> train
+#   docker compose up api dashboard     # serve API (:8000) + dashboard (:8501)
+services:
+  api:
+    build: .
+    image: air-raid-forecasting:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
+    environment:
+      - ARF_MODEL_DIR=/app/models
+    restart: unless-stopped
+
+  dashboard:
+    image: air-raid-forecasting:latest
+    build: .
+    command: streamlit run dashboard/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # One-off pipeline runner (ingest -> preprocess -> eda -> features -> train).
+  # Needs the torch extra for the LSTM, installed on top of the base image.
+  pipeline:
+    image: air-raid-forecasting:latest
+    build: .
+    command: >
+      bash -lc "pip install torch>=2.2 &&
+                python -m air_raid_forecasting.pipeline.run_all"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
+    profiles: ["tools"]
