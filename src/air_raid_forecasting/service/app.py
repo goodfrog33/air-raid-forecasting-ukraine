@@ -66,6 +66,8 @@ def health() -> HealthResponse:
         model_loaded=predictor is not None,
         n_regions=len(predictor.regions) if predictor else 0,
         best_count_model=predictor.b.best_count_model_name if predictor else None,
+        available_models=predictor.models if predictor else [],
+        has_news_variant=predictor.has_news() if predictor else False,
     )
 
 
@@ -84,6 +86,10 @@ def metrics() -> MetricsResponse:
         severity_metrics=m.get("severity_metrics"),
         production_count_backtest=m.get("production_count_backtest"),
         count_comparison_top=comp[:5],
+        available_models=predictor.models,
+        has_news_variant=predictor.has_news(),
+        per_model_metrics=getattr(predictor.b, "per_model_metrics", None),
+        news_lift=getattr(predictor.b, "news_lift", None),
     )
 
 
@@ -93,7 +99,8 @@ def predict(req: PredictRequest) -> PredictResponse:
     if predictor is None:
         raise HTTPException(status_code=503, detail="Model bundle not available. Train first.")
     try:
-        result = predictor.predict_one(req.region, req.forecast_horizon_hours)
+        result = predictor.predict_one(req.region, req.forecast_horizon_hours,
+                                       model=req.model, use_news=req.use_news)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return PredictResponse(**result)
@@ -106,7 +113,9 @@ def predict_batch(req: BatchPredictRequest) -> BatchPredictResponse:
         raise HTTPException(status_code=503, detail="Model bundle not available. Train first.")
     try:
         items = [(it.region, it.forecast_horizon_hours) for it in req.items]
-        results = predictor.predict_batch(items)
+        model = req.items[0].model if req.items else "best"
+        use_news = req.items[0].use_news if req.items else False
+        results = predictor.predict_batch(items, model=model, use_news=use_news)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return BatchPredictResponse(predictions=[PredictResponse(**r) for r in results])

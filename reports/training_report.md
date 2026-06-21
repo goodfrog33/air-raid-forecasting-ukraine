@@ -1,6 +1,6 @@
 # Training Report
 
-_Generated: 2026-06-21T15:52:27.510745+00:00_
+_Generated: 2026-06-21T19:43:10.130457+00:00_
 
 **Best national count model:** `catboost` (primary metric: MAE)
 
@@ -12,12 +12,11 @@ _Generated: 2026-06-21T15:52:27.510745+00:00_
 ## Production region model (count, H=1) — backtest
 ```
 {
-  "MAE": 0.17024041816199934,
-  "RMSE": 0.3099420405368962,
-  "MAPE": 81.48459871962243,
-  "MAPE_coverage": 0.1025462962962963,
-  "SMAPE": 190.66388234804978,
-  "fit_seconds": 11.685
+  "per_model_MAE": {
+    "lightgbm": 0.16983451337152658,
+    "xgboost": 0.17280643062369883,
+    "catboost": 0.17170355240655324
+  }
 }
 ```
 

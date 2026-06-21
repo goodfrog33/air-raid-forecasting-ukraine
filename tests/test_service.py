@@ -57,3 +57,20 @@ def test_unknown_region_404_if_model_available():
         return
     r = client.post("/predict", json={"region": "Atlantis", "forecast_horizon_hours": 6})
     assert r.status_code == 404
+
+
+def test_model_selection_and_news_toggle():
+    get_predictor.cache_clear()
+    predictor = get_predictor()
+    if predictor is None:
+        return
+    region = predictor.regions[0]
+    # Explicit model choice is honored (or gracefully falls back to an available one).
+    for m in predictor.models:
+        r = client.post("/predict", json={"region": region, "forecast_horizon_hours": 6, "model": m})
+        assert r.status_code == 200
+        assert r.json()["model"] in predictor.models
+    # News toggle works when a news variant exists; never errors otherwise.
+    r = client.post("/predict", json={"region": region, "forecast_horizon_hours": 6, "use_news": True})
+    assert r.status_code == 200
+    assert r.json()["news_factor"] == predictor.has_news()

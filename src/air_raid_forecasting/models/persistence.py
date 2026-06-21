@@ -1,10 +1,18 @@
 """Trained-model persistence (Phase 6/11).
 
-A :class:`ModelBundle` packages everything the prediction service needs:
-the trained per-horizon count regressors and probability classifiers, the
-duration & severity models, feature metadata, severity thresholds, backtest
-metrics and a model version. Saved/loaded with joblib as a single ``.joblib``
-artifact under ``models/``.
+A :class:`ModelBundle` packages everything the prediction service needs. It
+supports a nested, interactive structure:
+
+    variants["base"|"news"] = {
+        "count": {horizon_hours: {model_name: Forecaster}},
+        "proba": {window_hours: {model_name: Forecaster}},
+        "latest_features": DataFrame,        # one row per region (serving state)
+        "feature_cols": [...], "categorical_cols": [...],
+    }
+
+so the dashboard/API can pick the model (best or manual) and toggle the news
+factor on/off. Older single-model bundles (flat ``count_models``/``proba_models``)
+still load — the predictor detects which layout it has.
 """
 
 from __future__ import annotations
@@ -26,22 +34,30 @@ BUNDLE_NAME = "model_bundle.joblib"
 class ModelBundle:
     version: str = "1.0.0"
     created_at: str = ""
-    # Production estimators (global, region-aware), keyed by horizon hours.
-    count_models: dict[int, Any] = field(default_factory=dict)
-    proba_models: dict[int, Any] = field(default_factory=dict)
+
+    # --- interactive (multi-model, multi-variant) layout ---
+    variants: dict = field(default_factory=dict)
+    available_models: list[str] = field(default_factory=list)
+    available_variants: list[str] = field(default_factory=list)
+    # {variant: {"count_1h": {model: MAE}, "proba_6h": {model: ROC_AUC}}}
+    per_model_metrics: dict = field(default_factory=dict)
+    news_lift: dict = field(default_factory=dict)
+
+    # --- shared auxiliary models / metadata ---
     duration_model: Any = None
     severity_model: Any = None
-    # Metadata / context for serving.
-    feature_meta: dict = field(default_factory=dict)
     severity_thresholds: list[float] = field(default_factory=list)
     severity_labels: list[str] = field(default_factory=list)
     regions: list[str] = field(default_factory=list)
     count_horizons: list[int] = field(default_factory=list)
     proba_windows: list[int] = field(default_factory=list)
-    best_count_model_name: str = ""
+    best_count_model_name: str = ""   # headline national comparison winner
     metrics: dict = field(default_factory=dict)
-    # The most recent feature row per region, so the service can predict the
-    # "next window" without recomputing the whole feature pipeline at request time.
+
+    # --- legacy flat layout (old bundles) ---
+    count_models: dict = field(default_factory=dict)
+    proba_models: dict = field(default_factory=dict)
+    feature_meta: dict = field(default_factory=dict)
     latest_features: Any = None
 
     def save(self, models_dir: str | Path, name: str = BUNDLE_NAME) -> Path:

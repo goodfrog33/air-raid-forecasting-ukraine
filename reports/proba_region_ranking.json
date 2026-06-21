@@ -1,0 +1,67 @@
+{
+  "title": "Per-region P(alert within 6h) \u2014 classification model comparison",
+  "primary_metric": "ROC_AUC",
+  "best_model": "xgboost",
+  "ranking": [
+    {
+      "rank": 1,
+      "model": "xgboost",
+      "family": "ml",
+      "status": "ok",
+      "Accuracy": 0.8339899394586895,
+      "Precision": 0.8435489372135477,
+      "Recall": 0.8416868348285722,
+      "F1": 0.8426146779350927,
+      "ROC_AUC": 0.9145204011855437,
+      "LogLoss": 0.3640655093551519,
+      "Brier": 0.11717066127751441,
+      "PositiveRate": 0.5283344259906759,
+      "fit_seconds": 10.26
+    },
+    {
+      "rank": 2,
+      "model": "lightgbm",
+      "family": "ml",
+      "status": "ok",
+      "Accuracy": 0.832347108909609,
+      "Precision": 0.8431150470079323,
+      "Recall": 0.8387144280351335,
+      "F1": 0.8408717354097925,
+      "ROC_AUC": 0.9108823836556512,
+      "LogLoss": 0.37043596124240974,
+      "Brier": 0.11968572851062256,
+      "PositiveRate": 0.5283344259906759,
+      "fit_seconds": 12.379999999999999
+    },
+    {
+      "rank": 3,
+      "model": "persistence",
+      "family": "baseline",
+      "status": "ok",
+      "Accuracy": 0.773482218013468,
+      "Precision": 0.9170501344395727,
+      "Recall": 0.6280585297567662,
+      "F1": 0.7455222185003334,
+      "ROC_AUC": 0.7821743080860004,
+      "LogLoss": 0.505192080367912,
+      "Brier": 0.16637839578435643,
+      "PositiveRate": 0.5283344259906759,
+      "fit_seconds": 0.005
+    },
+    {
+      "rank": 4,
+      "model": "prior_rate",
+      "family": "baseline",
+      "status": "ok",
+      "Accuracy": 0.471665574009324,
+      "Precision": 0.0,
+      "Recall": 0.0,
+      "F1": 0.0,
+      "ROC_AUC": 0.5,
+      "LogLoss": 0.7041030469615291,
+      "Brier": 0.25545458778584385,
+      "PositiveRate": 0.5283344259906759,
+      "fit_seconds": 0.0
+    }
+  ]
+}

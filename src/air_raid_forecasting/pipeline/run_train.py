@@ -34,7 +34,11 @@ from air_raid_forecasting.logging_utils import get_logger
 from air_raid_forecasting.models.advanced import ProphetForecaster
 from air_raid_forecasting.models.auxiliary import DurationModel, SeverityModel
 from air_raid_forecasting.models.base import ModelContext
-from air_raid_forecasting.models.ml import LightGBMForecaster
+from air_raid_forecasting.models.ml import (
+    CatBoostForecaster,
+    LightGBMForecaster,
+    XGBoostForecaster,
+)
 from air_raid_forecasting.models.persistence import ModelBundle
 from air_raid_forecasting.models.registry import build_count_models, build_model, build_proba_models
 
@@ -84,14 +88,32 @@ def tune_lightgbm_national(national, ctx_count, folds, tracker) -> dict:
 FAST_SKIP_MODELS = {"lstm", "sarima"}
 
 
-def train_production_supervised(cfg, region, meta_reg, target_col, task, fast=False):
-    model = build_model(cfg.production.model, cfg)
-    if fast and isinstance(model, LightGBMForecaster):
-        model.params = {"n_estimators": 200}
+def _shrink_fast(model):
+    """Use small estimator counts for a quick rebuild."""
+    if isinstance(model, (LightGBMForecaster, XGBoostForecaster)):
+        model.params = {"n_estimators": 150}
+    elif isinstance(model, CatBoostForecaster):
+        model.params = {"iterations": 150}
+    return model
+
+
+def _make_ctx(cfg, feature_cols, cat_cols, task, target_col):
+    return ModelContext(
+        value_col="any_alert" if task == "proba" else "alerts_started",
+        feature_cols=feature_cols, categorical_cols=cat_cols,
+        seasonal_period=cfg.modeling.seasonal_period_hours,
+        timeout_s=cfg.modeling.per_model_timeout_seconds, seed=cfg.project.random_seed,
+        task=task, target_col=target_col,
+    )
+
+
+def _train_supervised(cfg, df, feature_cols, cat_cols, model_name, target_col, task, fast):
+    model = build_model(model_name, cfg)
     model.task = task
-    ctx = _ctx(cfg, meta_reg, value_col="any_alert" if task == "proba" else "alerts_started",
-               task=task, target_col=target_col, categorical=meta_reg["categorical_cols"])
-    sub = region[region[target_col].notna()]
+    if fast:
+        _shrink_fast(model)
+    ctx = _make_ctx(cfg, feature_cols, cat_cols, task, target_col)
+    sub = df[df[target_col].notna()]
     model.fit(sub, ctx)
     return model
 
@@ -139,23 +161,41 @@ def run_national_stage(cfg, n_folds, tracker, fast=False) -> dict:
 # --------------------------------------------------------------------------- #
 # Stage: production (C - H)
 # --------------------------------------------------------------------------- #
+def _build_variants(cfg, region, meta_reg, proc):
+    """Return {variant: (df, feature_cols, model_list)} for base (+ news if available)."""
+    base_cols = meta_reg["feature_cols"]
+    variants = {"base": (region, base_cols, cfg.production.models)}
+    news_path = proc / "news_features.parquet"
+    if cfg.production.train_news_variant and news_path.exists():
+        from air_raid_forecasting.features.news import NEWS_FEATURE_COLS, attach_news_features
+        news_feats = pd.read_parquet(news_path)
+        region_news = attach_news_features(region, news_feats)
+        variants["news"] = (region_news, base_cols + NEWS_FEATURE_COLS, cfg.production.news_variant_models)
+        log.info("  news variant enabled (%d extra features)", len(NEWS_FEATURE_COLS))
+    else:
+        log.info("  news variant skipped (no news_features.parquet)")
+    return variants
+
+
 def run_production_stage(cfg, n_folds_region, args, tracker) -> dict:
     proc = Path(cfg.paths.processed_dir)
     reports = Path(cfg.paths.reports_dir)
     figures = Path(cfg.paths.figures_dir)
     models_dir = Path(cfg.paths.models_dir)
+    fast = getattr(args, "fast", False)
 
     region = pd.read_parquet(proc / "features_region.parquet")
     region["timestamp"] = pd.to_datetime(region["timestamp"], utc=True)
     events = pd.read_parquet(proc / "alerts_events_labeled.parquet")
     meta = json.loads((proc / "features_meta.json").read_text())
     meta_reg = meta["region"]
+    cat_cols = meta_reg["categorical_cols"]
     summary: dict = {}
 
     if not args.no_region_proba:
         log.info("=== C) Per-region P(alert within 6h) — classification backtest ===")
         ctx_proba = _ctx(cfg, meta_reg, value_col="any_alert", task="proba",
-                         target_col="target_any_6h", categorical=meta_reg["categorical_cols"])
+                         target_col="target_any_6h", categorical=cat_cols)
         folds_reg = _folds(cfg, region["timestamp"], n_folds_region)
         res_proba = backtest_models(build_proba_models(cfg), region, ctx_proba, folds_reg,
                                     target_col="target_any_6h")
@@ -168,14 +208,50 @@ def run_production_stage(cfg, n_folds_region, args, tracker) -> dict:
             ["ROC_AUC", "F1", "Accuracy", "Precision", "Recall", "LogLoss"],
             "Per-region P(alert within 6h) — classification model comparison")
 
-    log.info("=== D) Train production models on the full region panel ===")
-    fast = getattr(args, "fast", False)
-    prod_count = {H: train_production_supervised(cfg, region, meta_reg, f"target_count_{H}h", "count", fast)
-                  for H in cfg.targets.count_horizons_hours}
-    log.info("  trained %d production count models", len(prod_count))
-    prod_proba = {H: train_production_supervised(cfg, region, meta_reg, f"target_any_{H}h", "proba", fast)
-                  for H in cfg.targets.proba_windows_hours}
-    log.info("  trained %d production proba models", len(prod_proba))
+    log.info("=== D) Train production model variants (multi-model + news) ===")
+    variants_data = _build_variants(cfg, region, meta_reg, proc)
+    bundle_variants: dict = {}
+    for vname, (df, fcols, model_list) in variants_data.items():
+        vd = {"count": {}, "proba": {}, "feature_cols": fcols, "categorical_cols": cat_cols}
+        for H in cfg.targets.count_horizons_hours:
+            vd["count"][H] = {mn: _train_supervised(cfg, df, fcols, cat_cols, mn, f"target_count_{H}h", "count", fast)
+                              for mn in model_list}
+        for W in cfg.targets.proba_windows_hours:
+            vd["proba"][W] = {mn: _train_supervised(cfg, df, fcols, cat_cols, mn, f"target_any_{W}h", "proba", fast)
+                              for mn in model_list}
+        latest = df.sort_values("timestamp").groupby("region", as_index=False).tail(1).reset_index(drop=True)
+        vd["latest_features"] = latest[["region", "timestamp"] + fcols].copy()
+        bundle_variants[vname] = vd
+        log.info("  variant '%s': %d models x (%d count + %d proba) horizons", vname, len(model_list),
+                 len(cfg.targets.count_horizons_hours), len(cfg.targets.proba_windows_hours))
+
+    log.info("=== E) Per-model region count (H=1) backtest -> best selection + news lift ===")
+    per_model_metrics: dict = {}
+    for vname, (df, fcols, model_list) in variants_data.items():
+        per_model_metrics[vname] = {"count_1h": {}}
+        folds = _folds(cfg, df["timestamp"], min(2, n_folds_region))
+        for mn in model_list:
+            m = build_model(mn, cfg); m.task = "count"
+            if fast:
+                _shrink_fast(m)
+            ctx = _make_ctx(cfg, fcols, cat_cols, "count", "target_count_1h")
+            res = backtest_model(m, df, ctx, folds, target_col="target_count_1h")
+            mae = res["aggregate"].get("MAE")
+            per_model_metrics[vname]["count_1h"][mn] = mae
+            tracker.log(f"{vname}_{mn}_count1h", {"variant": vname, "model": mn},
+                        res["aggregate"], tags={"task": "count", "series": "region"})
+            log.info("    %s/%s count_1h MAE=%.4f", vname, mn, mae or float("nan"))
+    base_metrics = per_model_metrics["base"]["count_1h"]
+    summary["production_count_backtest"] = {"per_model_MAE": base_metrics}
+    if "news" in per_model_metrics:
+        b = base_metrics.get("lightgbm"); n = per_model_metrics["news"]["count_1h"].get("lightgbm")
+        if b and n:
+            summary["news_lift"] = {"base_mae": b, "news_mae": n, "abs_improvement": b - n,
+                                    "pct_improvement": (b - n) / b * 100.0}
+            log.info("  news lift (lightgbm count_1h): base=%.4f news=%.4f (%.2f%%)",
+                     b, n, summary["news_lift"]["pct_improvement"])
+
+    best_base = min(base_metrics, key=base_metrics.get) if base_metrics else cfg.production.models[0]
 
     duration_model = DurationModel(seed=cfg.project.random_seed).fit(events)
     sev_labels = cfg.targets.severity.labels
@@ -189,25 +265,14 @@ def run_production_stage(cfg, n_folds_region, args, tracker) -> dict:
         "f1_macro": float(f1_score(ev_sorted.iloc[cut:]["severity"].astype(str), sev_pred,
                                    average="macro", labels=sev_labels, zero_division=0)),
     }
-    sev_model.fit(events)  # refit on all data for production
+    sev_model.fit(events)
     log.info("  severity classifier: %s", summary["severity_metrics"])
 
-    log.info("=== E) Production region count (H=1) backtest ===")
-    prod_bt = build_model(cfg.production.model, cfg)
-    prod_bt.task = "count"
-    ctx_prod = _ctx(cfg, meta_reg, value_col="alerts_started", task="count",
-                    target_col="target_count_1h", categorical=meta_reg["categorical_cols"])
-    res_prod = backtest_model(prod_bt, region, ctx_prod, _folds(cfg, region["timestamp"],
-                              min(2, n_folds_region)), target_col="target_count_1h")
-    summary["production_count_backtest"] = res_prod["aggregate"]
-    tracker.log("production_lightgbm_region_count_1h", {"horizon": 1}, res_prod["aggregate"],
-                tags={"task": "count", "series": "region"})
-
-    log.info("=== F) Explainability (SHAP + permutation + importance) ===")
+    log.info("=== F) Explainability on the best base count model (%s) ===", best_base)
     sub1 = region[region["target_count_1h"].notna()]
-    explain = run_explain(prod_count[1], sub1, sub1["target_count_1h"].to_numpy(),
-                          reports, figures, tag="production_count", sample=5000,
-                          seed=cfg.project.random_seed)
+    explain = run_explain(bundle_variants["base"]["count"][1][best_base], sub1,
+                          sub1["target_count_1h"].to_numpy(), reports, figures,
+                          tag="production_count", sample=5000, seed=cfg.project.random_seed)
     summary["explainability_top"] = explain.get("shap_top") or explain.get("feature_importance_top")
 
     log.info("=== G) Future forecast (Prophet) for the dashboard ===")
@@ -228,23 +293,22 @@ def run_production_stage(cfg, n_folds_region, args, tracker) -> dict:
     if handoff.exists():
         national_summary = json.loads(handoff.read_text())
     summary.update(national_summary)
-    best_count = (national_summary.get("count_comparison", {}) or {}).get("best_model") \
-        or cfg.production.model
-
-    latest = (region.sort_values("timestamp").groupby("region", as_index=False).tail(1)
-              .reset_index(drop=True))
-    latest_features = latest[["region", "timestamp"] + meta_reg["feature_cols"]].copy()
+    best_count = (national_summary.get("count_comparison", {}) or {}).get("best_model") or best_base
 
     bundle = ModelBundle(
         version=cfg.service.model_version,
         created_at=datetime.now(timezone.utc).isoformat(),
-        count_models=prod_count, proba_models=prod_proba,
+        variants=bundle_variants,
+        available_models=cfg.production.models,
+        available_variants=list(bundle_variants.keys()),
+        per_model_metrics=per_model_metrics,
+        news_lift=summary.get("news_lift", {}),
         duration_model=duration_model, severity_model=sev_model,
-        feature_meta=meta_reg, severity_thresholds=meta["severity"]["thresholds_minutes"],
+        severity_thresholds=meta["severity"]["thresholds_minutes"],
         severity_labels=sev_labels, regions=sorted(region["region"].unique().tolist()),
         count_horizons=cfg.targets.count_horizons_hours,
         proba_windows=cfg.targets.proba_windows_hours,
-        best_count_model_name=best_count, metrics=summary, latest_features=latest_features,
+        best_count_model_name=best_count, metrics=summary,
     )
     bundle.save(models_dir)
     return summary

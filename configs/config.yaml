@@ -77,7 +77,9 @@ features:
   weather:
     enabled: false
   news:
-    enabled: false
+    enabled: false           # base feature build stays news-free; training adds a news variant
+    query: 'ukraine (missile OR drone OR "air raid" OR shelling OR airstrike OR rocket)'
+    lags_days: [1, 2, 7]
 
 # -----------------------------------------------------------------------------
 # Phase 5 — Forecasting targets
@@ -130,7 +132,10 @@ backtest:
 # A single GLOBAL gradient-boosted model trained over the long (region x hour)
 # panel — it ingests engineered features and serves ANY region & horizon.
 production:
-  model: lightgbm                    # falls back to best ML model from comparison
+  model: lightgbm                    # default / fallback served model
+  models: [lightgbm, xgboost, catboost]   # algorithms offered in the dashboard model selector
+  train_news_variant: true           # also train a news-augmented variant (dashboard toggle)
+  news_variant_models: [lightgbm]    # which algos to train for the news variant (bound cost)
   serve_regions: auto
 
 # -----------------------------------------------------------------------------

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 class PredictRequest(BaseModel):
     region: str = Field(..., examples=["Kyiv"], description="Region name (oblast or short name).")
     forecast_horizon_hours: int = Field(6, ge=1, le=72, examples=[6])
+    model: str = Field("best", description="'best' (auto) or a model name (lightgbm/xgboost/catboost).")
+    use_news: bool = Field(False, description="Use the news-augmented model variant if available.")
 
 
 class PredictResponse(BaseModel):
@@ -20,6 +22,8 @@ class PredictResponse(BaseModel):
     confidence: float = Field(..., ge=0, le=1)
     model_version: str
     # Helpful extras (not in the minimal spec, but useful for clients).
+    model: str | None = None
+    news_factor: bool | None = None
     matched_horizon_hours: int | None = None
     as_of: str | None = None
 
@@ -38,6 +42,8 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     n_regions: int
     best_count_model: str | None = None
+    available_models: list[str] = []
+    has_news_variant: bool = False
 
 
 class MetricsResponse(BaseModel):
@@ -48,3 +54,7 @@ class MetricsResponse(BaseModel):
     severity_metrics: dict | None = None
     production_count_backtest: dict | None = None
     count_comparison_top: list[dict] | None = None
+    available_models: list[str] = []
+    has_news_variant: bool = False
+    per_model_metrics: dict | None = None
+    news_lift: dict | None = None

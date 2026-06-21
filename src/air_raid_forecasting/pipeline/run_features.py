@@ -42,6 +42,22 @@ def main(argv: list[str] | None = None) -> dict:
     reg_feats, reg_meta = build_region_features(region, cfg)
     reg_feats.to_parquet(proc / "features_region.parquet", index=False)
 
+    # Best-effort news features (GDELT) for the optional news model variant.
+    if cfg.production.train_news_variant:
+        try:
+            from air_raid_forecasting.features.news import (
+                NEWS_FEATURES_FILE,
+                build_news_features,
+                fetch_gdelt_daily,
+            )
+            lo = region["timestamp"].min().tz_convert(None).strftime("%Y-%m-%d")
+            hi = region["timestamp"].max().tz_convert(None).strftime("%Y-%m-%d")
+            news_daily = fetch_gdelt_daily(lo, hi, cfg.paths.external_dir, query=cfg.features.news.query)
+            build_news_features(news_daily).to_parquet(proc / NEWS_FEATURES_FILE, index=False)
+            log.info("  news features built (%s rows)", f"{len(news_daily):,}")
+        except Exception as exc:  # news is optional; never block the pipeline
+            log.warning("News features skipped (GDELT unavailable): %s", exc)
+
     sev = cfg.targets.severity
     events_lab, thresholds = add_severity_label(events, sev.quantiles, sev.labels)
     events_lab["severity"] = events_lab["severity"].astype(str)

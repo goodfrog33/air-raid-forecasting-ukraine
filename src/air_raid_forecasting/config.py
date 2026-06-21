@@ -90,6 +90,8 @@ class WeatherCfg(BaseModel):
 
 class NewsCfg(BaseModel):
     enabled: bool = False
+    query: str = 'ukraine (missile OR drone OR "air raid" OR shelling OR airstrike OR rocket)'
+    lags_days: list[int] = Field(default_factory=lambda: [1, 2, 7])
 
 
 class FeaturesCfg(BaseModel):
@@ -142,6 +144,9 @@ class BacktestCfg(BaseModel):
 
 class ProductionCfg(BaseModel):
     model: str = "lightgbm"
+    models: list[str] = Field(default_factory=lambda: ["lightgbm", "xgboost", "catboost"])
+    train_news_variant: bool = True
+    news_variant_models: list[str] = Field(default_factory=lambda: ["lightgbm"])
     serve_regions: Any = "auto"
 
 

@@ -28,6 +28,11 @@ FastAPI prediction service, and an interactive Streamlit dashboard.
   a **FastAPI** service (`/health`, `/metrics`, `/predict`, `/predict_batch`),
   and a **Streamlit** dashboard with a **live choropleth map** of Ukraine that
   runs the model for every oblast and colours them by predicted risk.
+- **Interactive controls**: a region-scope filter (all Ukraine or one oblast),
+  a model selector (best-auto or a specific algorithm — LightGBM/XGBoost/
+  CatBoost), and a **news-factor toggle** (GDELT war-news intensity) that
+  switches to a news-augmented model variant and reports the measured backtest
+  lift. The API exposes the same via optional `model` / `use_news` fields.
 - Full **pytest** suite and **Docker** deployment.
 
 ---

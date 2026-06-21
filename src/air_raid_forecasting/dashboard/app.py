@@ -52,6 +52,13 @@ def load_national() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def load_region_panel() -> pd.DataFrame:
+    df = pd.read_parquet(PROC / "panel_region_hourly.parquet")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    return df
+
+
+@st.cache_data(show_spinner=False)
 def load_json(path: Path) -> dict | None:
     return json.loads(path.read_text()) if path.exists() else None
 
@@ -82,45 +89,58 @@ def load_geo():
 
 
 @st.cache_data(show_spinner="Running the model for every region…")
-def live_predictions(horizon: int) -> pd.DataFrame:
+def live_predictions(horizon: int, model: str = "best", use_news: bool = False) -> pd.DataFrame:
     predictor = load_predictor()
-    rows = predictor.predict_batch([(r, horizon) for r in predictor.regions])
+    rows = predictor.predict_batch([(r, horizon) for r in predictor.regions],
+                                   model=model, use_news=use_news)
     df = pd.DataFrame(rows)
     df["short"] = df["region"].map(short_name)
     return df
 
 
+def _model_label(name: str) -> str:
+    return {"best": "Best (auto)"}.get(name, name)
+
+
 # --------------------------------------------------------------------------- #
 # Sections
 # --------------------------------------------------------------------------- #
-def section_summary(events: pd.DataFrame, national: pd.DataFrame) -> None:
+def section_summary(events: pd.DataFrame, series: pd.DataFrame, scope: str,
+                    events_all: pd.DataFrame) -> None:
     st.header("Executive Summary")
-    summary = load_json(REPORTS / "eda_summary.json") or {}
+    st.caption(f"Scope: **{scope}**")
     n_days = max((events["started_at"].max() - events["started_at"].min()).days, 1)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total alerts", f"{len(events):,}")
     c2.metric("Avg alerts / day", f"{len(events)/n_days:.1f}")
-    c3.metric("Regions", events["region"].nunique())
-    c4.metric("Hours w/ any alert", f"{national['any_alert'].mean()*100:.0f}%")
+    c3.metric("Regions in scope", events["region"].nunique())
+    c4.metric("Hours w/ any alert", f"{series['any_alert'].mean()*100:.0f}%")
 
     st.caption(f"Data span: {events['started_at'].min().date()} → {events['started_at'].max().date()}")
 
-    totals = (events.groupby("region").size().sort_values(ascending=False)
-              .rename("alerts").reset_index())
-    totals["region"] = totals["region"].map(short_name)
-    fig = px.bar(totals.head(12), x="alerts", y="region", orientation="h",
-                 title="Top affected regions", color="alerts", color_continuous_scale="reds")
-    fig.update_layout(yaxis=dict(autorange="reversed"), height=450)
+    if scope == "All Ukraine":
+        totals = (events_all.groupby("region").size().sort_values(ascending=False)
+                  .rename("alerts").reset_index())
+        totals["region"] = totals["region"].map(short_name)
+        fig = px.bar(totals.head(12), x="alerts", y="region", orientation="h",
+                     title="Top affected regions", color="alerts", color_continuous_scale="reds")
+        fig.update_layout(yaxis=dict(autorange="reversed"), height=450)
+    else:
+        monthly = events.set_index("started_at").resample("1MS").size()
+        monthly.index = monthly.index.tz_convert(None)
+        fig = px.bar(x=monthly.index, y=monthly.values, title=f"Monthly alerts — {scope}",
+                     labels={"x": "Month", "y": "Alerts"})
+        fig.update_layout(height=420)
     st.plotly_chart(fig, use_container_width=True)
 
 
-def section_analytics(events: pd.DataFrame, national: pd.DataFrame) -> None:
+def section_analytics(events: pd.DataFrame, series: pd.DataFrame, events_all: pd.DataFrame) -> None:
     st.header("Analytics")
     tab_trend, tab_season, tab_region, tab_dur = st.tabs(
         ["Trends", "Seasonality", "Regional", "Duration"])
 
     with tab_trend:
-        daily = national.set_index("timestamp")["alerts_started"].resample("1D").sum()
+        daily = series.set_index("timestamp")["alerts_started"].resample("1D").sum()
         roll = daily.rolling(7, min_periods=1).mean()
         fig = go.Figure()
         fig.add_scatter(x=daily.index, y=daily.values, name="Daily", line=dict(width=1, color="#9ecae1"))
@@ -147,7 +167,8 @@ def section_analytics(events: pd.DataFrame, national: pd.DataFrame) -> None:
                           use_container_width=True)
 
     with tab_region:
-        agg = (events.groupby("region")
+        st.caption("Cross-region comparison (always all regions).")
+        agg = (events_all.groupby("region")
                .agg(alerts=("region", "size"), median_duration=("duration_minutes", "median"))
                .sort_values("alerts", ascending=False).reset_index())
         agg["region"] = agg["region"].map(short_name)
@@ -201,18 +222,26 @@ def section_prediction() -> None:
         st.warning("Model bundle not found. Train the models first "
                    "(`python -m air_raid_forecasting.pipeline.run_train`).")
         return
-    col1, col2 = st.columns(2)
-    region = col1.selectbox("Region", predictor.regions,
-                            format_func=short_name)
+    col1, col2, col3 = st.columns(3)
+    region = col1.selectbox("Region", predictor.regions, format_func=short_name)
     horizon = col2.select_slider("Forecast horizon (hours)", options=[1, 3, 6, 12, 24], value=6)
+    model = col3.selectbox("Prediction model", ["best", *predictor.models], format_func=_model_label,
+                           help="'Best (auto)' = lowest backtest MAE for the chosen factor set.")
+    use_news = False
+    if predictor.has_news():
+        use_news = st.checkbox("📰 Use news as a prediction factor (GDELT war-news intensity)",
+                               value=False)
     if st.button("Forecast", type="primary"):
-        res = predictor.predict_one(region, int(horizon))
+        res = predictor.predict_one(region, int(horizon), model=model, use_news=use_news)
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Alert probability", f"{res['alert_probability']*100:.0f}%")
         m2.metric("Predicted count", res["predicted_alert_count"])
         m3.metric("Expected duration", f"{res['predicted_duration_minutes']:.0f} min")
         m4.metric("Severity", res["severity"])
         st.progress(res["confidence"], text=f"Model confidence: {res['confidence']*100:.0f}%")
+        st.caption(f"Model: **{res.get('model')}** · news factor: "
+                   f"**{'on' if res.get('news_factor') else 'off'}** · "
+                   f"matched horizon: {res.get('matched_horizon_hours')}h")
         st.json(res)
 
 
@@ -250,11 +279,22 @@ def section_map() -> None:
                    "(`python -m air_raid_forecasting.pipeline.run_train`).")
         return
 
-    c1, c2 = st.columns([1, 1])
+    c1, c2, c3 = st.columns([1, 1, 1])
     horizon = c1.select_slider("Forecast horizon (hours)", options=[1, 3, 6, 12, 24], value=6)
     metric = c2.selectbox("Colour regions by",
                           ["Alert probability", "Predicted count", "Severity"])
-    df = live_predictions(int(horizon))
+    model = c3.selectbox("Prediction model", ["best", *predictor.models],
+                         format_func=_model_label,
+                         help="'Best (auto)' picks the model with the lowest backtest MAE.")
+    use_news = False
+    if predictor.has_news():
+        use_news = st.checkbox("📰 Use news as a prediction factor (GDELT war-news intensity)",
+                               value=False)
+        lift = getattr(predictor.b, "news_lift", {}) or {}
+        if lift.get("pct_improvement") is not None:
+            st.caption(f"News factor changes backtest MAE from {lift['base_mae']:.3f} → "
+                       f"{lift['news_mae']:.3f} ({lift['pct_improvement']:+.1f}%).")
+    df = live_predictions(int(horizon), model, use_news)
     geojson, centroids = load_geo()
 
     hover = {
@@ -325,14 +365,30 @@ def render() -> None:
          "Prediction Tool", "Explainability"],
     )
     st.sidebar.markdown("---")
-    st.sidebar.caption(f"Events: {len(events):,}  ·  Regions: {events['region'].nunique()}")
+
+    # Global region-scope filter (drives Summary & Analytics).
+    regions = sorted(events["region"].unique())
+    label_to_region = {short_name(r): r for r in regions}
+    scope = st.sidebar.selectbox(
+        "Region scope", ["All Ukraine", *sorted(label_to_region)],
+        help="Filter the Summary & Analytics views to one region, or view all of Ukraine.",
+    )
+    region_sel = label_to_region.get(scope)
+    if region_sel:
+        events_scoped = events[events["region"] == region_sel]
+        rp = load_region_panel()
+        series = rp[rp["region"] == region_sel][["timestamp", "alerts_started", "any_alert"]].copy()
+    else:
+        events_scoped = events
+        series = national[["timestamp", "alerts_started", "any_alert"]].copy()
+    st.sidebar.caption(f"Scope: {scope} · Events: {len(events_scoped):,}")
 
     if page == "Executive Summary":
-        section_summary(events, national)
+        section_summary(events_scoped, series, scope, events)
     elif page == "Live Map":
         section_map()
     elif page == "Analytics":
-        section_analytics(events, national)
+        section_analytics(events_scoped, series, events)
     elif page == "Forecasting":
         section_forecasting()
     elif page == "Prediction Tool":

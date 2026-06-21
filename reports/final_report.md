@@ -40,7 +40,14 @@ A: alert count (next 1/6/24h) · B: alert probability (next 1/6/24h) · C: expec
 
 ## 5. Model comparison — per-region P(alert within 6h)
 
-_Not available — run training._
+**Best model: `xgboost`** (by ROC_AUC).
+
+| rank | model | family | ROC_AUC | F1 | Accuracy | LogLoss |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | xgboost | ml | 0.9145 | 0.8426 | 0.8340 | 0.3641 |
+| 2 | lightgbm | ml | 0.9109 | 0.8409 | 0.8323 | 0.3704 |
+| 3 | persistence | baseline | 0.7822 | 0.7455 | 0.7735 | 0.5052 |
+| 4 | prior_rate | baseline | 0.5000 | 0.0000 | 0.4717 | 0.7041 |
 
 ## 6. Iterative optimization
 
@@ -55,12 +62,11 @@ A global, region-aware gradient-boosted model serves any region & horizon for Ta
 **Production region count (H=1) backtest:**
 ```
 {
-  "MAE": 0.17024041816199934,
-  "RMSE": 0.3099420405368962,
-  "MAPE": 81.48459871962243,
-  "MAPE_coverage": 0.1025462962962963,
-  "SMAPE": 190.66388234804978,
-  "fit_seconds": 11.685
+  "per_model_MAE": {
+    "lightgbm": 0.16983451337152658,
+    "xgboost": 0.17280643062369883,
+    "catboost": 0.17170355240655324
+  }
 }
 ```
 
@@ -69,15 +75,15 @@ A global, region-aware gradient-boosted model serves any region & horizon for Ta
 ## 8. Explainability
 
 Top drivers (mean |SHAP| / importance):
-- `alerts_started_roll_mean_168`: 0.02946
-- `region_cat`: 0.00933
-- `hour`: 0.00885
-- `alert_minutes_lag_1`: 0.00724
-- `alerts_started_roll_std_168`: 0.00643
-- `alerts_started_roll_sum_24`: 0.00476
-- `alert_minutes_roll_sum_24`: 0.00379
-- `alert_minutes_roll_std_3`: 0.00364
-- `alerts_started_roll_mean_72`: 0.0033
+- `alerts_started_roll_mean_168`: 0.02945
+- `region_cat`: 0.00886
+- `hour`: 0.00863
+- `alert_minutes_lag_1`: 0.00705
+- `alerts_started_roll_std_168`: 0.00651
+- `alerts_started_roll_sum_24`: 0.00471
+- `alert_minutes_roll_std_3`: 0.00361
+- `alerts_started_roll_mean_72`: 0.00331
+- `alert_minutes_roll_sum_24`: 0.00326
 - `alerts_started_roll_sum_168`: 0.00294
 
 See `reports/figures/production_count_shap_summary.png`.

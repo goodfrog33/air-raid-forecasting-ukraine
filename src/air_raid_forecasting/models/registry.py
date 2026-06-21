@@ -84,10 +84,15 @@ def build_count_models(cfg: Config) -> list[Forecaster]:
     return models
 
 
+# Only the fast gradient-boosted learners are used for the per-region (897k-row)
+# classification backtest — RandomForest/CatBoost are too slow at that scale.
+PROBA_BACKTEST_ML = {"lightgbm", "xgboost"}
+
+
 def build_proba_models(cfg: Config) -> list[Forecaster]:
-    """Classification models: persistence + prior-rate baselines plus enabled ML."""
+    """Classification models: persistence + prior-rate baselines plus fast ML."""
     names = ["persistence", "prior_rate"]
-    names += [m for m in cfg.modeling.enabled_models if m in ML_MODELS]
+    names += [m for m in cfg.modeling.enabled_models if m in PROBA_BACKTEST_ML]
     models: list[Forecaster] = []
     for name in names:
         try:
