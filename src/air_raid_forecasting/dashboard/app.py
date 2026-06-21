@@ -105,33 +105,123 @@ def _model_label(name: str) -> str:
 # --------------------------------------------------------------------------- #
 # Sections
 # --------------------------------------------------------------------------- #
+def _fmt(x, nd=2, dash="—"):
+    try:
+        return f"{float(x):.{nd}f}"
+    except (TypeError, ValueError):
+        return dash
+
+
 def section_summary(events: pd.DataFrame, series: pd.DataFrame, scope: str,
                     events_all: pd.DataFrame) -> None:
+    eda = load_json(REPORTS / "eda_summary.json") or {}
+    count = load_json(REPORTS / "count_national_ranking.json") or {}
+    proba = load_json(REPORTS / "proba_region_ranking.json") or {}
+    metrics = load_json(REPORTS / "metrics_summary.json") or {}
+    explain = load_json(REPORTS / "production_count_explainability.json") or {}
+
+    crank = {r["model"]: r for r in count.get("ranking", [])}
+    prank = {r["model"]: r for r in proba.get("ranking", [])}
+    best_count = count.get("best_model")
+    best_proba = proba.get("best_model")
+    n_days = max((events_all["started_at"].max() - events_all["started_at"].min()).days, 1)
+
     st.header("Executive Summary")
-    st.caption(f"Scope: **{scope}**")
-    n_days = max((events["started_at"].max() - events["started_at"].min()).days, 1)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total alerts", f"{len(events):,}")
-    c2.metric("Avg alerts / day", f"{len(events)/n_days:.1f}")
-    c3.metric("Regions in scope", events["region"].nunique())
-    c4.metric("Hours w/ any alert", f"{series['any_alert'].mean()*100:.0f}%")
+    st.markdown(
+        "An end-to-end analytics platform that forecasts **Ukrainian air raid alerts** "
+        "from real historical data. It cleans and consolidates alerts to oblast level, "
+        "explores their temporal and geographic structure, and benchmarks a dozen "
+        "forecasting models with leakage-free **expanding-window backtesting** to power a "
+        "live per-region prediction service.")
 
-    st.caption(f"Data span: {events['started_at'].min().date()} → {events['started_at'].max().date()}")
+    # --- headline KPIs (project-wide) ---
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total alerts", f"{eda.get('total_alerts', len(events_all)):,}")
+    c2.metric("Avg / day", _fmt(eda.get("avg_alerts_per_day", len(events_all) / n_days), 1))
+    c3.metric("Regions", eda.get("n_regions", events_all["region"].nunique()))
+    c4.metric("Hours w/ alert", f"{float(eda.get('hourly_alert_rate', 0))*100:.0f}%")
+    c5.metric("Median duration", f"{_fmt(eda.get('duration_minutes', {}).get('median'), 0)} min")
+    st.caption(f"Data: Vadimkin air-raid-sirens dataset (live, UTC) · "
+               f"{str(eda.get('date_min', ''))[:10]} → {str(eda.get('date_max', ''))[:10]} · "
+               "_region scope (sidebar) applies to the Analytics tab._")
 
-    if scope == "All Ukraine":
+    st.divider()
+    left, right = st.columns([1.15, 1])
+    with left:
+        st.subheader("What the data shows")
+        dur = eda.get("duration_minutes", {})
+        decomp = eda.get("decomposition", {})
+        adf = eda.get("stationarity", {}).get("adf", {})
+        top = list(eda.get("top_regions", {}).items())
+        st.markdown(
+            f"- **Where:** most-affected regions are "
+            f"{', '.join(k for k, _ in top[:5]) if top else 'frontline oblasts'} — the eastern/"
+            "southern frontline dominates.\n"
+            f"- **How often:** at least one region is under alert **{float(eda.get('hourly_alert_rate', 0))*100:.0f}%** "
+            "of all hours; binary risk is therefore modelled **per region**, not nationally.\n"
+            f"- **How long:** a typical alert lasts **{_fmt(dur.get('median'), 0)} min** "
+            f"(90th pct ≈ {_fmt(dur.get('p90'), 0)} min, tail to {_fmt(dur.get('max'), 0)} min).\n"
+            f"- **Rhythm:** clear daily + weekly seasonality (STL seasonal strength "
+            f"{_fmt(decomp.get('seasonal_strength'), 2)}, trend {_fmt(decomp.get('trend_strength'), 2)}).\n"
+            f"- **Stationarity:** ADF p={_fmt(adf.get('pvalue'), 3)} → the hourly series is "
+            "trend-stationary, justifying lag/rolling features over raw levels.")
+    with right:
         totals = (events_all.groupby("region").size().sort_values(ascending=False)
                   .rename("alerts").reset_index())
         totals["region"] = totals["region"].map(short_name)
-        fig = px.bar(totals.head(12), x="alerts", y="region", orientation="h",
+        fig = px.bar(totals.head(10), x="alerts", y="region", orientation="h",
                      title="Top affected regions", color="alerts", color_continuous_scale="reds")
-        fig.update_layout(yaxis=dict(autorange="reversed"), height=450)
-    else:
-        monthly = events.set_index("started_at").resample("1MS").size()
-        monthly.index = monthly.index.tz_convert(None)
-        fig = px.bar(x=monthly.index, y=monthly.values, title=f"Monthly alerts — {scope}",
-                     labels={"x": "Month", "y": "Alerts"})
-        fig.update_layout(height=420)
-    st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(yaxis=dict(autorange="reversed"), height=360,
+                          margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+    st.subheader("Forecasting models & accuracy")
+    st.markdown(
+        "Twelve models (baselines · ETS/SARIMA · Prophet · LSTM · RF/XGBoost/LightGBM/"
+        "CatBoost) were compared on identical rolling-origin folds. Headline results:")
+    rows = []
+    if best_count:
+        rows.append({"Task": "Alert count — national, next hour", "Type": "regression",
+                     "Best model": best_count, "Score": f"MAE {_fmt(crank.get(best_count, {}).get('MAE'))}",
+                     "vs baseline": f"naive MAE {_fmt(crank.get('naive', {}).get('MAE'))}"})
+    if best_proba:
+        rows.append({"Task": "Alert probability — per region, next 6 h", "Type": "classification",
+                     "Best model": best_proba, "Score": f"ROC-AUC {_fmt(prank.get(best_proba, {}).get('ROC_AUC'))}",
+                     "vs baseline": f"persistence {_fmt(prank.get('persistence', {}).get('ROC_AUC'))}"})
+    pm = (metrics.get("production_count_backtest") or {}).get("per_model_MAE") or {}
+    if pm:
+        bm = min(pm, key=pm.get)
+        rows.append({"Task": "Production count — per region, next hour", "Type": "regression",
+                     "Best model": bm, "Score": f"MAE {_fmt(pm[bm], 3)}", "vs baseline": "—"})
+    sev = metrics.get("severity_metrics") or {}
+    if sev:
+        rows.append({"Task": "Severity — Low/Med/High/Critical", "Type": "classification",
+                     "Best model": "lightgbm", "Score": f"acc {_fmt(sev.get('accuracy'))} · F1 {_fmt(sev.get('f1_macro'))}",
+                     "vs baseline": "—"})
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    m1, m2, m3 = st.columns(3)
+    if best_count:
+        nv = crank.get("naive", {}).get("MAE")
+        bv = crank.get(best_count, {}).get("MAE")
+        delta = f"-{_fmt(nv - bv)} vs naive" if (nv and bv) else None
+        m1.metric("Best count MAE (national)", _fmt(bv), delta, delta_color="inverse")
+    if best_proba:
+        m2.metric("Best alert-probability AUC", _fmt(prank.get(best_proba, {}).get("ROC_AUC")))
+    lift = metrics.get("news_lift") or {}
+    if lift.get("pct_improvement") is not None:
+        m3.metric("News factor (count MAE)", f"{lift['pct_improvement']:+.1f}%",
+                  help="GDELT war-news intensity; negative = it slightly hurt this target.")
+
+    drivers = explain.get("shap_top") or explain.get("feature_importance_top") or {}
+    if drivers:
+        st.subheader("What drives the forecasts")
+        top_d = list(drivers.items())[:6]
+        st.markdown("Top features of the production model: "
+                    + ", ".join(f"`{k}`" for k, _ in top_d) + ".")
+    st.caption("⚠️ Analytical use on open historical data only — not an early-warning system.")
 
 
 def section_analytics(events: pd.DataFrame, series: pd.DataFrame, events_all: pd.DataFrame) -> None:
