@@ -451,8 +451,23 @@ def section_map() -> None:
     st.dataframe(table.reset_index(drop=True), use_container_width=True, height=380)
 
 
+def _artifacts_signature() -> tuple:
+    """Mtimes of the key artifacts; changes when a new build/train is deployed."""
+    files = [MODELS / "model_bundle.joblib", PROC / "alerts_events_labeled.parquet",
+             PROC / "forecast_national.parquet", REPORTS / "metrics_summary.json",
+             REPORTS / "count_national_ranking.json"]
+    return tuple((f.name, f.stat().st_mtime) for f in files if f.exists())
+
+
 def render() -> None:
     st.set_page_config(page_title="Ukraine Air Raid Forecasting", page_icon="🛡️", layout="wide")
+    # Auto-clear caches when the underlying artifacts change (e.g. after a redeploy),
+    # so a new model bundle / refreshed reports show up without a manual reboot.
+    sig = _artifacts_signature()
+    if st.session_state.get("_artifact_sig") != sig:
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.session_state["_artifact_sig"] = sig
     st.title("🛡️ Ukraine Air Raid Alert — Analytics & Forecasting")
     st.caption("A miniature defense-analytics platform · data: Vadimkin air-raid-sirens dataset (UTC)")
 
