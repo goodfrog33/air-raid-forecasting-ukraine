@@ -80,6 +80,10 @@ features:
     enabled: false           # base feature build stays news-free; training adds a news variant
     query: 'ukraine (missile OR drone OR "air raid" OR shelling OR airstrike OR rocket)'
     lags_days: [1, 2, 7]
+  telegram:                  # separate event-signal factor: public war-monitor channels
+    enabled: false
+    channels: ["war_monitor", "radar_raketaa"]
+    max_pages: 45            # web-preview pagination depth (recent posts only)
 
 # -----------------------------------------------------------------------------
 # Phase 5 — Forecasting targets
@@ -134,8 +138,10 @@ backtest:
 production:
   model: lightgbm                    # default / fallback served model
   models: [lightgbm, xgboost, catboost]   # algorithms offered in the dashboard model selector
-  train_news_variant: true           # also train a news-augmented variant (dashboard toggle)
+  train_news_variant: true           # also train a GDELT-news-augmented variant (dashboard toggle)
   news_variant_models: [lightgbm]    # which algos to train for the news variant (bound cost)
+  train_telegram_variant: true       # also train a Telegram-channels-augmented variant
+  telegram_variant_models: [lightgbm]
   serve_regions: auto
 
 # -----------------------------------------------------------------------------

@@ -174,6 +174,19 @@ def _build_variants(cfg, region, meta_reg, proc):
         log.info("  news variant enabled (%d extra features)", len(NEWS_FEATURE_COLS))
     else:
         log.info("  news variant skipped (no news_features.parquet)")
+    tg_path = proc / "telegram_features.parquet"
+    if cfg.production.train_telegram_variant and tg_path.exists():
+        from air_raid_forecasting.features.telegram import (
+            TELEGRAM_FEATURE_COLS,
+            attach_telegram_features,
+        )
+        tg_feats = pd.read_parquet(tg_path)
+        region_tg = attach_telegram_features(region, tg_feats)
+        variants["telegram"] = (region_tg, base_cols + TELEGRAM_FEATURE_COLS,
+                                cfg.production.telegram_variant_models)
+        log.info("  telegram variant enabled (%d extra features)", len(TELEGRAM_FEATURE_COLS))
+    else:
+        log.info("  telegram variant skipped (no telegram_features.parquet)")
     return variants
 
 
@@ -243,13 +256,25 @@ def run_production_stage(cfg, n_folds_region, args, tracker) -> dict:
             log.info("    %s/%s count_1h MAE=%.4f", vname, mn, mae or float("nan"))
     base_metrics = per_model_metrics["base"]["count_1h"]
     summary["production_count_backtest"] = {"per_model_MAE": base_metrics}
-    if "news" in per_model_metrics:
-        b = base_metrics.get("lightgbm"); n = per_model_metrics["news"]["count_1h"].get("lightgbm")
-        if b and n:
-            summary["news_lift"] = {"base_mae": b, "news_mae": n, "abs_improvement": b - n,
-                                    "pct_improvement": (b - n) / b * 100.0}
-            log.info("  news lift (lightgbm count_1h): base=%.4f news=%.4f (%.2f%%)",
-                     b, n, summary["news_lift"]["pct_improvement"])
+    # Generic per-variant lift vs the base lightgbm (count_1h MAE; lower is better).
+    base_lgb = base_metrics.get("lightgbm")
+    variant_lift = {}
+    for v in per_model_metrics:
+        if v == "base":
+            continue
+        x = per_model_metrics[v]["count_1h"].get("lightgbm")
+        if base_lgb and x:
+            variant_lift[v] = {"base_mae": base_lgb, "variant_mae": x,
+                               "abs_improvement": base_lgb - x,
+                               "pct_improvement": (base_lgb - x) / base_lgb * 100.0}
+            log.info("  %s lift (lightgbm count_1h): base=%.4f %s=%.4f (%.2f%%)",
+                     v, base_lgb, v, x, variant_lift[v]["pct_improvement"])
+    summary["variant_lift"] = variant_lift
+    if "news" in variant_lift:  # back-compat field
+        summary["news_lift"] = {"base_mae": variant_lift["news"]["base_mae"],
+                                "news_mae": variant_lift["news"]["variant_mae"],
+                                "abs_improvement": variant_lift["news"]["abs_improvement"],
+                                "pct_improvement": variant_lift["news"]["pct_improvement"]}
 
     best_base = min(base_metrics, key=base_metrics.get) if base_metrics else cfg.production.models[0]
 

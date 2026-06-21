@@ -67,6 +67,7 @@ def health() -> HealthResponse:
         n_regions=len(predictor.regions) if predictor else 0,
         best_count_model=predictor.b.best_count_model_name if predictor else None,
         available_models=predictor.models if predictor else [],
+        available_factors=predictor.factors if predictor else [],
         has_news_variant=predictor.has_news() if predictor else False,
     )
 
@@ -100,7 +101,7 @@ def predict(req: PredictRequest) -> PredictResponse:
         raise HTTPException(status_code=503, detail="Model bundle not available. Train first.")
     try:
         result = predictor.predict_one(req.region, req.forecast_horizon_hours,
-                                       model=req.model, use_news=req.use_news)
+                                       model=req.model, use_news=req.use_news, factor=req.factor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return PredictResponse(**result)
@@ -113,9 +114,11 @@ def predict_batch(req: BatchPredictRequest) -> BatchPredictResponse:
         raise HTTPException(status_code=503, detail="Model bundle not available. Train first.")
     try:
         items = [(it.region, it.forecast_horizon_hours) for it in req.items]
-        model = req.items[0].model if req.items else "best"
-        use_news = req.items[0].use_news if req.items else False
-        results = predictor.predict_batch(items, model=model, use_news=use_news)
+        first = req.items[0] if req.items else None
+        model = first.model if first else "best"
+        use_news = first.use_news if first else False
+        factor = first.factor if first else None
+        results = predictor.predict_batch(items, model=model, use_news=use_news, factor=factor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return BatchPredictResponse(predictions=[PredictResponse(**r) for r in results])

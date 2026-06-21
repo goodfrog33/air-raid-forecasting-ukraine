@@ -34,9 +34,15 @@ FastAPI prediction service, and an interactive Streamlit dashboard.
   runs the model for every oblast and colours them by predicted risk.
 - **Interactive controls**: a region-scope filter (all Ukraine or one oblast),
   a model selector (best-auto or a specific algorithm — LightGBM/XGBoost/
-  CatBoost), and a **news-factor toggle** (GDELT war-news intensity) that
-  switches to a news-augmented model variant and reports the measured backtest
-  lift. The API exposes the same via optional `model` / `use_news` fields.
+  CatBoost), and an **event-signal factor** selector that swaps in a different
+  model variant and reports its measured backtest lift:
+  - **📰 GDELT** war-news intensity, and
+  - **📡 Telegram** war-monitor channels (`war_monitor`, `radar_raketaa`,
+    scraped from the public web preview).
+
+  The API exposes the same via optional `model` / `factor` (`base`/`news`/
+  `telegram`) fields. (Both event signals are recent-coverage, so their trained
+  lift is small/honest — the dashboard shows it.)
 - Full **pytest** suite and **Docker** deployment.
 
 ---

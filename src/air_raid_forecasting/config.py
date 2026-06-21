@@ -94,6 +94,12 @@ class NewsCfg(BaseModel):
     lags_days: list[int] = Field(default_factory=lambda: [1, 2, 7])
 
 
+class TelegramCfg(BaseModel):
+    enabled: bool = False
+    channels: list[str] = Field(default_factory=lambda: ["war_monitor", "radar_raketaa"])
+    max_pages: int = 45
+
+
 class FeaturesCfg(BaseModel):
     use_calendar: bool = True
     use_holidays: bool = True
@@ -104,6 +110,7 @@ class FeaturesCfg(BaseModel):
     add_time_since_last_alert: bool = True
     weather: WeatherCfg = Field(default_factory=WeatherCfg)
     news: NewsCfg = Field(default_factory=NewsCfg)
+    telegram: TelegramCfg = Field(default_factory=TelegramCfg)
 
 
 class DurationTargetCfg(BaseModel):
@@ -147,6 +154,8 @@ class ProductionCfg(BaseModel):
     models: list[str] = Field(default_factory=lambda: ["lightgbm", "xgboost", "catboost"])
     train_news_variant: bool = True
     news_variant_models: list[str] = Field(default_factory=lambda: ["lightgbm"])
+    train_telegram_variant: bool = True
+    telegram_variant_models: list[str] = Field(default_factory=lambda: ["lightgbm"])
     serve_regions: Any = "auto"
 
 

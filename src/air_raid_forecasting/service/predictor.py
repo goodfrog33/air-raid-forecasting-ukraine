@@ -59,6 +59,18 @@ class Predictor:
     def has_news(self) -> bool:
         return "news" in self.variants
 
+    def has_factor(self, name: str) -> bool:
+        return name in self.variants
+
+    @property
+    def factors(self) -> list[str]:
+        """Available event-signal variants, e.g. ['base', 'news', 'telegram']."""
+        return list(self.variants)
+
+    def factor_lift(self, variant: str) -> dict | None:
+        lifts = (getattr(self.b, "metrics", {}) or {}).get("variant_lift", {}) or {}
+        return lifts.get(variant)
+
     def best_model(self, variant: str = "base") -> str:
         per_model = getattr(self.b, "per_model_metrics", {}) or {}
         metrics = {m: v for m, v in per_model.get(variant, {}).get("count_1h", {}).items()
@@ -85,10 +97,16 @@ class Predictor:
             return None, None, count_h, proba_h  # resolved with model name in predict_one
         return self.b.count_models[count_h], self.b.proba_models[proba_h], count_h, proba_h
 
+    def _resolve_variant(self, factor: str | None, use_news: bool) -> str:
+        if factor:
+            return factor if factor in self.variants else "base"
+        return "news" if (use_news and self.has_news()) else "base"
+
     def predict_one(self, region: str, horizon_hours: int, model: str = "best",
-                    use_news: bool = False, now: datetime | None = None) -> dict:
+                    use_news: bool = False, factor: str | None = None,
+                    now: datetime | None = None) -> dict:
         canonical = normalize_region(region)
-        variant = "news" if (use_news and self.has_news()) else "base"
+        variant = self._resolve_variant(factor, use_news)
         if canonical is None or canonical not in self._latest[variant].index:
             raise KeyError(f"Unknown region {region!r}. Known: {', '.join(self.regions)}")
         now = now or datetime.now(timezone.utc)
@@ -128,12 +146,15 @@ class Predictor:
             "severity": severity,
             "confidence": round(max(proba, 1.0 - proba), 4),
             "model": model_name,
+            "factor": variant,
             "news_factor": variant == "news",
             "model_version": self.b.version,
             "as_of": now.isoformat(),
         }
 
-    def predict_batch(self, items: list, model: str = "best", use_news: bool = False) -> list[dict]:
-        """Items are (region, horizon) tuples; model/news apply to all."""
+    def predict_batch(self, items: list, model: str = "best", use_news: bool = False,
+                      factor: str | None = None) -> list[dict]:
+        """Items are (region, horizon) tuples; model/factor apply to all."""
         now = datetime.now(timezone.utc)
-        return [self.predict_one(r, h, model=model, use_news=use_news, now=now) for r, h in items]
+        return [self.predict_one(r, h, model=model, use_news=use_news, factor=factor, now=now)
+                for r, h in items]

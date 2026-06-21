@@ -1,6 +1,6 @@
 # Training Report
 
-_Generated: 2026-06-21T19:43:10.130457+00:00_
+_Generated: 2026-06-21T20:50:04.826695+00:00_
 
 **Best national count model:** `catboost` (primary metric: MAE)
 

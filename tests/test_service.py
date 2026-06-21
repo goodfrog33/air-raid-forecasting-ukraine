@@ -74,3 +74,16 @@ def test_model_selection_and_news_toggle():
     r = client.post("/predict", json={"region": region, "forecast_horizon_hours": 6, "use_news": True})
     assert r.status_code == 200
     assert r.json()["news_factor"] == predictor.has_news()
+
+
+def test_event_signal_factors():
+    get_predictor.cache_clear()
+    predictor = get_predictor()
+    if predictor is None:
+        return
+    region = predictor.regions[0]
+    for f in predictor.factors:  # base / news / telegram (whichever exist)
+        r = client.post("/predict",
+                        json={"region": region, "forecast_horizon_hours": 6, "factor": f})
+        assert r.status_code == 200
+        assert r.json()["factor"] in predictor.factors

@@ -9,7 +9,9 @@ class PredictRequest(BaseModel):
     region: str = Field(..., examples=["Kyiv"], description="Region name (oblast or short name).")
     forecast_horizon_hours: int = Field(6, ge=1, le=72, examples=[6])
     model: str = Field("best", description="'best' (auto) or a model name (lightgbm/xgboost/catboost).")
-    use_news: bool = Field(False, description="Use the news-augmented model variant if available.")
+    use_news: bool = Field(False, description="Shortcut for factor='news' (GDELT). Back-compat.")
+    factor: str | None = Field(
+        None, description="Event-signal variant: 'base' | 'news' (GDELT) | 'telegram'.")
 
 
 class PredictResponse(BaseModel):
@@ -23,6 +25,7 @@ class PredictResponse(BaseModel):
     model_version: str
     # Helpful extras (not in the minimal spec, but useful for clients).
     model: str | None = None
+    factor: str | None = None
     news_factor: bool | None = None
     matched_horizon_hours: int | None = None
     as_of: str | None = None
@@ -43,6 +46,7 @@ class HealthResponse(BaseModel):
     n_regions: int
     best_count_model: str | None = None
     available_models: list[str] = []
+    available_factors: list[str] = []
     has_news_variant: bool = False
 
 

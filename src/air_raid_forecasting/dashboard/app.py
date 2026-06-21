@@ -89,10 +89,10 @@ def load_geo():
 
 
 @st.cache_data(show_spinner="Running the model for every region…")
-def live_predictions(horizon: int, model: str = "best", use_news: bool = False) -> pd.DataFrame:
+def live_predictions(horizon: int, model: str = "best", factor: str = "base") -> pd.DataFrame:
     predictor = load_predictor()
     rows = predictor.predict_batch([(r, horizon) for r in predictor.regions],
-                                   model=model, use_news=use_news)
+                                   model=model, factor=factor)
     df = pd.DataFrame(rows)
     df["short"] = df["region"].map(short_name)
     return df
@@ -100,6 +100,31 @@ def live_predictions(horizon: int, model: str = "best", use_news: bool = False) 
 
 def _model_label(name: str) -> str:
     return {"best": "Best (auto)"}.get(name, name)
+
+
+_FACTOR_LABELS = {
+    "base": "Off (no event factor)",
+    "news": "📰 GDELT war-news",
+    "telegram": "📡 Telegram channels (war_monitor, radar_raketaa)",
+}
+
+
+def _factor_label(v: str) -> str:
+    return _FACTOR_LABELS.get(v, v)
+
+
+def _factor_picker(predictor, key: str) -> str:
+    """Radio for the event-signal factor (Off / GDELT / Telegram); shows its lift."""
+    opts = [v for v in ("base", "news", "telegram") if v in predictor.factors]
+    if len(opts) <= 1:
+        return "base"
+    choice = st.radio("Event-signal factor", opts, format_func=_factor_label,
+                      horizontal=True, key=key)
+    lift = predictor.factor_lift(choice)
+    if lift and lift.get("pct_improvement") is not None:
+        st.caption(f"{_factor_label(choice)} → backtest count MAE {lift['variant_mae']:.3f} "
+                   f"vs base {lift['base_mae']:.3f} ({lift['pct_improvement']:+.1f}%).")
+    return choice
 
 
 # --------------------------------------------------------------------------- #
@@ -317,20 +342,16 @@ def section_prediction() -> None:
     horizon = col2.select_slider("Forecast horizon (hours)", options=[1, 3, 6, 12, 24], value=6)
     model = col3.selectbox("Prediction model", ["best", *predictor.models], format_func=_model_label,
                            help="'Best (auto)' = lowest backtest MAE for the chosen factor set.")
-    use_news = False
-    if predictor.has_news():
-        use_news = st.checkbox("📰 Use news as a prediction factor (GDELT war-news intensity)",
-                               value=False)
+    factor = _factor_picker(predictor, key="pred_factor")
     if st.button("Forecast", type="primary"):
-        res = predictor.predict_one(region, int(horizon), model=model, use_news=use_news)
+        res = predictor.predict_one(region, int(horizon), model=model, factor=factor)
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Alert probability", f"{res['alert_probability']*100:.0f}%")
         m2.metric("Predicted count", res["predicted_alert_count"])
         m3.metric("Expected duration", f"{res['predicted_duration_minutes']:.0f} min")
         m4.metric("Severity", res["severity"])
         st.progress(res["confidence"], text=f"Model confidence: {res['confidence']*100:.0f}%")
-        st.caption(f"Model: **{res.get('model')}** · news factor: "
-                   f"**{'on' if res.get('news_factor') else 'off'}** · "
+        st.caption(f"Model: **{res.get('model')}** · factor: **{_factor_label(res.get('factor'))}** · "
                    f"matched horizon: {res.get('matched_horizon_hours')}h")
         st.json(res)
 
@@ -376,15 +397,8 @@ def section_map() -> None:
     model = c3.selectbox("Prediction model", ["best", *predictor.models],
                          format_func=_model_label,
                          help="'Best (auto)' picks the model with the lowest backtest MAE.")
-    use_news = False
-    if predictor.has_news():
-        use_news = st.checkbox("📰 Use news as a prediction factor (GDELT war-news intensity)",
-                               value=False)
-        lift = getattr(predictor.b, "news_lift", {}) or {}
-        if lift.get("pct_improvement") is not None:
-            st.caption(f"News factor changes backtest MAE from {lift['base_mae']:.3f} → "
-                       f"{lift['news_mae']:.3f} ({lift['pct_improvement']:+.1f}%).")
-    df = live_predictions(int(horizon), model, use_news)
+    factor = _factor_picker(predictor, key="map_factor")
+    df = live_predictions(int(horizon), model, factor)
     geojson, centroids = load_geo()
 
     hover = {

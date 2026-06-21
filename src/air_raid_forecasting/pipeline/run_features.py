@@ -58,6 +58,21 @@ def main(argv: list[str] | None = None) -> dict:
         except Exception as exc:  # news is optional; never block the pipeline
             log.warning("News features skipped (GDELT unavailable): %s", exc)
 
+    if cfg.production.train_telegram_variant:
+        try:
+            from air_raid_forecasting.features.telegram import (
+                TELEGRAM_FEATURES_FILE,
+                build_telegram_features,
+                fetch_telegram_daily,
+            )
+            tg_daily = fetch_telegram_daily(cfg.paths.external_dir,
+                                            channels=cfg.features.telegram.channels,
+                                            max_pages=cfg.features.telegram.max_pages)
+            build_telegram_features(tg_daily).to_parquet(proc / TELEGRAM_FEATURES_FILE, index=False)
+            log.info("  telegram features built (%s rows)", f"{len(tg_daily):,}")
+        except Exception as exc:  # telegram is optional; never block the pipeline
+            log.warning("Telegram features skipped: %s", exc)
+
     sev = cfg.targets.severity
     events_lab, thresholds = add_severity_label(events, sev.quantiles, sev.labels)
     events_lab["severity"] = events_lab["severity"].astype(str)
