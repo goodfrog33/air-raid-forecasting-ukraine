@@ -262,20 +262,23 @@ def section_map() -> None:
         "predicted_duration_minutes": ":.0f", "severity": True,
     }
     if geojson is not None:
+        # maplibre renderer (choropleth_map) fills polygons in screen space, so it
+        # is immune to the d3-geo winding bug that made one oblast flood the frame.
         common = dict(geojson=geojson, locations="region",
                       featureidkey="properties.region_canonical",
-                      hover_name="short", hover_data=hover)
+                      hover_name="short", hover_data=hover,
+                      map_style="carto-positron", center={"lat": 48.4, "lon": 31.4},
+                      zoom=4.3, opacity=0.72)
         if metric == "Severity":
-            fig = px.choropleth(df, color="severity", color_discrete_map=_SEVERITY_COLORS,
-                                category_orders={"severity": _SEVERITY_ORDER}, **common)
+            fig = px.choropleth_map(df, color="severity", color_discrete_map=_SEVERITY_COLORS,
+                                    category_orders={"severity": _SEVERITY_ORDER}, **common)
         elif metric == "Predicted count":
-            fig = px.choropleth(df, color="predicted_alert_count",
-                                color_continuous_scale="Oranges", **common)
+            fig = px.choropleth_map(df, color="predicted_alert_count",
+                                    color_continuous_scale="Oranges", **common)
         else:
-            fig = px.choropleth(df, color="alert_probability", range_color=(0, 1),
-                                color_continuous_scale="Reds", **common)
-        fig.update_geos(fitbounds="locations", visible=False)
-        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=560)
+            fig = px.choropleth_map(df, color="alert_probability", range_color=(0, 1),
+                                    color_continuous_scale="Reds", **common)
+        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=600)
     else:
         # Bubble-map fallback (no GeoJSON): centroids + colour/size by prediction.
         d = df.copy()
